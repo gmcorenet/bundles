@@ -17,8 +17,13 @@ Download the binary for your platform from the releases page:
 ## Usage
 
 ```bash
-# Create SDK release (triggers GitHub Actions to build and publish framework)
-gmcore release v1.0.0
+# Create SDK release (auto-increment version)
+gmcore release minor   # 1.0.0 → 1.1.0
+gmcore release major   # 1.0.0 → 2.0.0
+gmcore release bugfix  # 1.0.0 → 1.0.1
+
+# Or specify exact version
+gmcore release v1.2.3
 
 # Build framework tarball locally
 gmcore build-framework v1.0.0
@@ -26,3 +31,8 @@ gmcore build-framework v1.0.0
 # Show version
 gmcore version
 ```
+
+## Requirements
+
+- GitHub token set via `GITHUB_TOKEN` environment variable (for release command)
+- Access to `gmcorenet/sdk` repository

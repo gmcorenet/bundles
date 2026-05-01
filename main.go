@@ -1,15 +1,21 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
+var githubToken = os.Getenv("GITHUB_TOKEN")
+
 const (
-	sdkPath    = "/home/dev/workspace/sdk"
+	sdkRepo    = "gmcorenet/sdk"
 	cliVersion = "0.1.0"
 )
 
@@ -24,11 +30,11 @@ func main() {
 	switch cmd {
 	case "release":
 		if len(os.Args) < 3 {
-			fmt.Fprintln(os.Stderr, "Usage: gmcore release <version>")
+			fmt.Fprintln(os.Stderr, "Usage: gmcore release <minor|major|bugfix|v1.0.0>")
 			os.Exit(1)
 		}
-		version := os.Args[2]
-		if err := release(version); err != nil {
+		bumpType := os.Args[2]
+		if err := release(bumpType); err != nil {
 			fmt.Fprintln(os.Stderr, "Error:", err)
 			os.Exit(1)
 		}
@@ -57,46 +63,177 @@ func printUsage() {
 	fmt.Println("gmcore - GMCore Workspace Management Tool")
 	fmt.Println("")
 	fmt.Println("Usage:")
-	fmt.Println("  gmcore release <version>        Create and push SDK release tag")
-	fmt.Println("  gmcore build-framework [ver]    Build framework tarball locally")
-	fmt.Println("  gmcore version                  Show version")
+	fmt.Println("  gmcore release <type>      Create and push SDK release tag")
+	fmt.Println("    type: minor (1.0.0 → 1.1.0)")
+	fmt.Println("          major (1.0.0 → 2.0.0)")
+	fmt.Println("          bugfix (1.0.0 → 1.0.1)")
+	fmt.Println("          or explicit version (e.g., v1.2.3)")
+	fmt.Println("  gmcore build-framework [ver]  Build framework tarball locally")
+	fmt.Println("  gmcore version                Show version")
 	fmt.Println("")
 	fmt.Println("Examples:")
+	fmt.Println("  gmcore release minor")
 	fmt.Println("  gmcore release v1.0.0")
-	fmt.Println("  gmcore build-framework v1.0.0")
 }
 
-func release(version string) error {
-	if !strings.HasPrefix(version, "v") {
-		version = "v" + version
+func release(bumpOrVersion string) error {
+	var newVersion string
+
+	if strings.HasPrefix(bumpOrVersion, "v") || strings.Contains(bumpOrVersion, ".") {
+		if !strings.HasPrefix(bumpOrVersion, "v") {
+			bumpOrVersion = "v" + bumpOrVersion
+		}
+		newVersion = bumpOrVersion
+		fmt.Printf("Using explicit version: %s\n", newVersion)
+	} else {
+		current, err := getLatestVersion()
+		if err != nil {
+			return fmt.Errorf("failed to get latest version: %w", err)
+		}
+
+		switch bumpOrVersion {
+		case "minor":
+			newVersion = incrementMinor(current)
+		case "major":
+			newVersion = incrementMajor(current)
+		case "bugfix":
+			newVersion = incrementBugfix(current)
+		default:
+			return fmt.Errorf("unknown release type: %s (use: minor, major, bugfix, or v1.0.0)", bumpOrVersion)
+		}
+		fmt.Printf("Current: %s → New: %s\n", current, newVersion)
 	}
 
-	fmt.Printf("Creating release %s...\n", version)
+	sdkPath, err := getSdkPath()
+	if err != nil {
+		return err
+	}
 
-	tagCmd := exec.Command("git", "tag", version)
+	fmt.Printf("Creating release %s...\n", newVersion)
+
+	tagCmd := exec.Command("git", "tag", newVersion)
 	tagCmd.Dir = sdkPath
 	if output, err := tagCmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to create tag: %s", string(output))
 	}
 
-	pushCmd := exec.Command("git", "push", "origin", version)
+	pushURL := fmt.Sprintf("https://%s@github.com/%s.git", githubToken, sdkRepo)
+	pushCmd := exec.Command("git", "push", pushURL, newVersion)
 	pushCmd.Dir = sdkPath
 	if output, err := pushCmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to push tag: %s", string(output))
 	}
 
-	fmt.Printf("Release %s pushed! GitHub Actions will build and publish.\n", version)
-	fmt.Printf("Watch progress at: https://github.com/gmcorenet/sdk/actions\n")
+	fmt.Printf("Release %s pushed! GitHub Actions will build and publish.\n", newVersion)
+	fmt.Printf("Watch progress at: https://github.com/%s/actions\n", sdkRepo)
 
 	return nil
+}
+
+func getLatestVersion() (string, error) {
+	url := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", sdkRepo)
+
+	resp, err := http.Get(url)
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == 404 {
+		return "v0.0.0", nil
+	}
+
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("unexpected status: %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read body: %w", err)
+	}
+
+	var release struct {
+		TagName string `json:"tag_name"`
+	}
+	if err := json.Unmarshal(body, &release); err != nil {
+		return "", fmt.Errorf("failed to parse JSON: %w", err)
+	}
+
+	return release.TagName, nil
+}
+
+func incrementMinor(current string) string {
+	return bumpVersion(current, "minor")
+}
+
+func incrementMajor(current string) string {
+	return bumpVersion(current, "major")
+}
+
+func incrementBugfix(current string) string {
+	return bumpVersion(current, "bugfix")
+}
+
+func bumpVersion(current, bumpType string) string {
+	current = strings.TrimPrefix(current, "v")
+	parts := strings.Split(current, ".")
+	if len(parts) < 3 {
+		for len(parts) < 3 {
+			parts = append(parts, "0")
+		}
+	}
+
+	major, _ := strconv.Atoi(parts[0])
+	minor, _ := strconv.Atoi(parts[1])
+	patch, _ := strconv.Atoi(parts[2])
+
+	switch bumpType {
+	case "major":
+		major++
+		minor = 0
+		patch = 0
+	case "minor":
+		minor++
+		patch = 0
+	case "bugfix":
+		patch++
+	}
+
+	return fmt.Sprintf("v%d.%d.%d", major, minor, patch)
+}
+
+func getSdkPath() (string, error) {
+	wd, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+
+	sdkPath := filepath.Join(wd, "..", "sdk")
+	if _, err := os.Stat(sdkPath); err != nil {
+		return "", fmt.Errorf("sdk path not found. Expected at: %s", sdkPath)
+	}
+
+	if githubToken != "" {
+		remoteURL := fmt.Sprintf("https://%s@github.com/%s.git", githubToken, sdkRepo)
+		cmd := exec.Command("git", "remote", "set-url", "origin", remoteURL)
+		cmd.Dir = sdkPath
+		cmd.Run()
+	}
+
+	return sdkPath, nil
 }
 
 func buildFramework(version string) error {
 	fmt.Printf("Building framework %s locally...\n", version)
 
-	absSdkPath, err := filepath.Abs(sdkPath)
+	wd, err := os.Getwd()
 	if err != nil {
-		return fmt.Errorf("failed to get absolute path: %w", err)
+		return fmt.Errorf("failed to get wd: %w", err)
+	}
+
+	sdkPath := filepath.Join(wd, "..", "sdk")
+	if _, err := os.Stat(sdkPath); os.IsNotExist(err) {
+		return fmt.Errorf("sdk path not found at: %s", sdkPath)
 	}
 
 	tmpDir, err := os.MkdirTemp("", "gmcore-build-*")
@@ -123,7 +260,7 @@ func buildFramework(version string) error {
 		}
 	}
 
-	sdkEntries, err := os.ReadDir(absSdkPath)
+	sdkEntries, err := os.ReadDir(sdkPath)
 	if err != nil {
 		return fmt.Errorf("failed to read sdk dir: %w", err)
 	}
@@ -133,7 +270,7 @@ func buildFramework(version string) error {
 			continue
 		}
 
-		src := filepath.Join(absSdkPath, entry.Name())
+		src := filepath.Join(sdkPath, entry.Name())
 		dest := filepath.Join(frameworkDir, "vendor/gmcore", entry.Name())
 
 		if err := copyDir(src, dest); err != nil {
@@ -142,6 +279,7 @@ func buildFramework(version string) error {
 		fmt.Printf("  Copied %s\n", entry.Name())
 	}
 
+	cleanVersion := strings.TrimPrefix(version, "v")
 	goModContent := fmt.Sprintf(`module github.com/gmcore/app
 
 go 1.21
@@ -167,17 +305,10 @@ replace (
 	gmcore.io/gmcore-store => ./vendor/gmcore/gmcore-store
 	gmcore.io/gmcore-uuid => ./vendor/gmcore/gmcore-uuid
 )
-`, version, version, version, version, version, version, version, version)
+`, cleanVersion, cleanVersion, cleanVersion, cleanVersion, cleanVersion, cleanVersion, cleanVersion, cleanVersion)
 
 	if err := os.WriteFile(filepath.Join(frameworkDir, "go.mod"), []byte(goModContent), 0644); err != nil {
 		return fmt.Errorf("failed to write go.mod: %w", err)
-	}
-
-	fmt.Println("Running go mod tidy...")
-	tidyCmd := exec.Command("go", "mod", "tidy")
-	tidyCmd.Dir = frameworkDir
-	if output, err := tidyCmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("go mod tidy failed: %s", string(output))
 	}
 
 	tarballPath := filepath.Join(tmpDir, "gmcore-framework-"+version+".tar.gz")
@@ -185,7 +316,7 @@ replace (
 		return fmt.Errorf("failed to create tarball: %w", err)
 	}
 
-	outputDir := "/home/dev/workspace/dist"
+	outputDir := filepath.Join(wd, "..", "dist")
 	os.MkdirAll(outputDir, 0755)
 	finalPath := filepath.Join(outputDir, "gmcore-framework-"+version+".tar.gz")
 
