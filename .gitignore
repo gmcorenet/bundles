@@ -1,0 +1,14 @@
+# Binaries
+gmcore
+gmcore-*
+
+# Test binary
+*.test
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Build output
+dist/
