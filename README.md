@@ -14,6 +14,20 @@ Download the binary for your platform from the releases page:
 | macOS | arm64 | `gmcore-darwin-arm64` |
 | Windows | amd64 | `gmcore-windows-amd64.exe` |
 
+## Configuration
+
+Create `~/.gmcore/config` with your GitHub token:
+
+```
+token = YOUR_GITHUB_TOKEN
+```
+
+To create a token:
+1. Go to https://github.com/settings/tokens
+2. Generate new token (classic)
+3. Select "repo" scope
+4. Copy the token and add it to `~/.gmcore/config`
+
 ## Usage
 
 ```bash
@@ -31,8 +45,3 @@ gmcore build-framework v1.0.0
 # Show version
 gmcore version
 ```
-
-## Requirements
-
-- GitHub token set via `GITHUB_TOKEN` environment variable (for release command)
-- Access to `gmcorenet/sdk` repository

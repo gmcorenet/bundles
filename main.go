@@ -1,18 +1,18 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"strconv"
 	"strings"
 )
-
-var githubToken = os.Getenv("GITHUB_TOKEN")
 
 const (
 	sdkRepo    = "gmcorenet/sdk"
@@ -20,6 +20,12 @@ const (
 )
 
 func main() {
+	token, err := getGitHubToken()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+
 	if len(os.Args) < 2 {
 		printUsage()
 		os.Exit(1)
@@ -34,7 +40,7 @@ func main() {
 			os.Exit(1)
 		}
 		bumpType := os.Args[2]
-		if err := release(bumpType); err != nil {
+		if err := release(bumpType, token); err != nil {
 			fmt.Fprintln(os.Stderr, "Error:", err)
 			os.Exit(1)
 		}
@@ -59,6 +65,52 @@ func main() {
 	}
 }
 
+func getGitHubToken() (string, error) {
+	if token := os.Getenv("GITHUB_TOKEN"); token != "" {
+		return token, nil
+	}
+
+	usr, err := user.Current()
+	if err != nil {
+		return "", fmt.Errorf("GITHUB_TOKEN not set and could not determine home directory")
+	}
+
+	configPath := filepath.Join(usr.HomeDir, ".gmcore", "config")
+
+	file, err := os.Open(configPath)
+	if err != nil {
+		return "", fmt.Errorf(`GITHUB_TOKEN not configured
+
+Create config file at: %s
+
+With content:
+  token = YOUR_GITHUB_TOKEN
+
+To create a token:
+1. Go to https://github.com/settings/tokens
+2. Generate new token (classic)
+3. Select "repo" scope
+4. Copy the token and add it to ~/.gmcore/config`, configPath)
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if strings.HasPrefix(line, "token") {
+			parts := strings.SplitN(line, "=", 2)
+			if len(parts) == 2 {
+				return strings.TrimSpace(parts[1]), nil
+			}
+		}
+	}
+
+	return "", fmt.Errorf(`token not found in %s
+
+Add to config:
+  token = YOUR_GITHUB_TOKEN`, configPath)
+}
+
 func printUsage() {
 	fmt.Println("gmcore - GMCore Workspace Management Tool")
 	fmt.Println("")
@@ -76,7 +128,7 @@ func printUsage() {
 	fmt.Println("  gmcore release v1.0.0")
 }
 
-func release(bumpOrVersion string) error {
+func release(bumpOrVersion, token string) error {
 	var newVersion string
 
 	if strings.HasPrefix(bumpOrVersion, "v") || strings.Contains(bumpOrVersion, ".") {
@@ -86,7 +138,7 @@ func release(bumpOrVersion string) error {
 		newVersion = bumpOrVersion
 		fmt.Printf("Using explicit version: %s\n", newVersion)
 	} else {
-		current, err := getLatestVersion()
+		current, err := getLatestVersion(token)
 		if err != nil {
 			return fmt.Errorf("failed to get latest version: %w", err)
 		}
@@ -104,7 +156,7 @@ func release(bumpOrVersion string) error {
 		fmt.Printf("Current: %s → New: %s\n", current, newVersion)
 	}
 
-	sdkPath, err := getSdkPath()
+	sdkPath, err := getSdkPath(token)
 	if err != nil {
 		return err
 	}
@@ -117,7 +169,7 @@ func release(bumpOrVersion string) error {
 		return fmt.Errorf("failed to create tag: %s", string(output))
 	}
 
-	pushURL := fmt.Sprintf("https://%s@github.com/%s.git", githubToken, sdkRepo)
+	pushURL := fmt.Sprintf("https://%s@github.com/%s.git", token, sdkRepo)
 	pushCmd := exec.Command("git", "push", pushURL, newVersion)
 	pushCmd.Dir = sdkPath
 	if output, err := pushCmd.CombinedOutput(); err != nil {
@@ -130,10 +182,16 @@ func release(bumpOrVersion string) error {
 	return nil
 }
 
-func getLatestVersion() (string, error) {
+func getLatestVersion(token string) (string, error) {
 	url := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", sdkRepo)
 
-	resp, err := http.Get(url)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "token "+token)
+
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to fetch: %w", err)
 	}
@@ -202,7 +260,7 @@ func bumpVersion(current, bumpType string) string {
 	return fmt.Sprintf("v%d.%d.%d", major, minor, patch)
 }
 
-func getSdkPath() (string, error) {
+func getSdkPath(token string) (string, error) {
 	wd, err := os.Getwd()
 	if err != nil {
 		return "", err
@@ -213,12 +271,10 @@ func getSdkPath() (string, error) {
 		return "", fmt.Errorf("sdk path not found. Expected at: %s", sdkPath)
 	}
 
-	if githubToken != "" {
-		remoteURL := fmt.Sprintf("https://%s@github.com/%s.git", githubToken, sdkRepo)
-		cmd := exec.Command("git", "remote", "set-url", "origin", remoteURL)
-		cmd.Dir = sdkPath
-		cmd.Run()
-	}
+	remoteURL := fmt.Sprintf("https://%s@github.com/%s.git", token, sdkRepo)
+	cmd := exec.Command("git", "remote", "set-url", "origin", remoteURL)
+	cmd.Dir = sdkPath
+	cmd.Run()
 
 	return sdkPath, nil
 }
