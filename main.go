@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 )
@@ -68,6 +69,12 @@ func main() {
 	case "version", "--version", "-v":
 		fmt.Printf("gmcore workspace tool %s\n", cliVersion)
 
+	case "uninstall":
+		if err := uninstall(); err != nil {
+			fmt.Fprintln(os.Stderr, "Error:", err)
+			os.Exit(1)
+		}
+
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", cmd)
 		printUsage()
@@ -87,12 +94,41 @@ func printUsage() {
 	fmt.Println("  gmcore build-framework [ver]  Build framework tarball locally")
 	fmt.Println("  gmcore self-update [version]  Update tool to latest or specific version")
 	fmt.Println("  gmcore version                Show version")
+	fmt.Println("  gmcore uninstall              Uninstall workspace tool")
 	fmt.Println("")
 	fmt.Println("Examples:")
 	fmt.Println("  gmcore release minor")
 	fmt.Println("  gmcore release v1.0.0")
 	fmt.Println("  gmcore self-update")
 	fmt.Println("  gmcore self-update 0.4.0")
+}
+
+func uninstall() error {
+	exePath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("failed to find current executable: %w", err)
+	}
+
+	var targetPath string
+	switch runtime.GOOS {
+	case "linux", "darwin":
+		targetPath = "/usr/local/bin/gmcore"
+	case "windows":
+		targetPath = "C:\\Program Files\\gmcore\\gmcore.exe"
+	default:
+		return fmt.Errorf("unsupported platform: %s", runtime.GOOS)
+	}
+
+	if exePath != targetPath {
+		return fmt.Errorf("uninstall only works when running the installed binary")
+	}
+
+	if err := os.Remove(targetPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to remove binary: %w", err)
+	}
+
+	fmt.Printf("Uninstalled gmcore from %s\n", targetPath)
+	return nil
 }
 
 func getGitHubToken() (string, error) {
