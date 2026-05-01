@@ -197,27 +197,49 @@ func getLatestVersion(token string) (string, error) {
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode == 200 {
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return "", fmt.Errorf("failed to read body: %w", err)
+		}
+
+		var release struct {
+			TagName string `json:"tag_name"`
+		}
+		if err := json.Unmarshal(body, &release); err != nil {
+			return "", fmt.Errorf("failed to parse JSON: %w", err)
+		}
+		return release.TagName, nil
+	}
+
 	if resp.StatusCode == 404 {
-		return "v0.0.0", nil
+		tagsURL := fmt.Sprintf("https://api.github.com/repos/%s/tags", sdkRepo)
+		req, _ := http.NewRequest("GET", tagsURL, nil)
+		req.Header.Set("Authorization", "token "+token)
+
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return "v0.0.0", nil
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode == 200 {
+			body, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return "v0.0.0", nil
+			}
+
+			var tags []struct {
+				Name string `json:"name"`
+			}
+			if err := json.Unmarshal(body, &tags); err != nil || len(tags) == 0 {
+				return "v0.0.0", nil
+			}
+			return tags[0].Name, nil
+		}
 	}
 
-	if resp.StatusCode != 200 {
-		return "", fmt.Errorf("unexpected status: %d", resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to read body: %w", err)
-	}
-
-	var release struct {
-		TagName string `json:"tag_name"`
-	}
-	if err := json.Unmarshal(body, &release); err != nil {
-		return "", fmt.Errorf("failed to parse JSON: %w", err)
-	}
-
-	return release.TagName, nil
+	return "v0.0.0", nil
 }
 
 func incrementMinor(current string) string {
@@ -261,22 +283,38 @@ func bumpVersion(current, bumpType string) string {
 }
 
 func getSdkPath(token string) (string, error) {
+	if sdkPath := os.Getenv("GMCORE_SDK_PATH"); sdkPath != "" {
+		if _, err := os.Stat(sdkPath); err != nil {
+			return "", fmt.Errorf("sdk path from GMCORE_SDK_PATH not found: %s", sdkPath)
+		}
+		configureRemote(sdkPath, token)
+		return sdkPath, nil
+	}
+
 	wd, err := os.Getwd()
 	if err != nil {
 		return "", err
 	}
 
-	sdkPath := filepath.Join(wd, "..", "sdk")
-	if _, err := os.Stat(sdkPath); err != nil {
-		return "", fmt.Errorf("sdk path not found. Expected at: %s", sdkPath)
+	sdkPath := filepath.Join(wd, "sdk")
+	if _, err := os.Stat(sdkPath); err == nil {
+		configureRemote(sdkPath, token)
+		return sdkPath, nil
 	}
 
+	sdkPath = filepath.Join(wd, "..", "sdk")
+	if _, err := os.Stat(sdkPath); err != nil {
+		return "", fmt.Errorf("sdk path not found. Set GMCORE_SDK_PATH or run from workspace with sibling sdk directory")
+	}
+	configureRemote(sdkPath, token)
+	return sdkPath, nil
+}
+
+func configureRemote(sdkPath, token string) {
 	remoteURL := fmt.Sprintf("https://%s@github.com/%s.git", token, sdkRepo)
 	cmd := exec.Command("git", "remote", "set-url", "origin", remoteURL)
 	cmd.Dir = sdkPath
 	cmd.Run()
-
-	return sdkPath, nil
 }
 
 func buildFramework(version string) error {
@@ -287,9 +325,12 @@ func buildFramework(version string) error {
 		return fmt.Errorf("failed to get wd: %w", err)
 	}
 
-	sdkPath := filepath.Join(wd, "..", "sdk")
+	sdkPath := filepath.Join(wd, "sdk")
 	if _, err := os.Stat(sdkPath); os.IsNotExist(err) {
-		return fmt.Errorf("sdk path not found at: %s", sdkPath)
+		sdkPath = filepath.Join(wd, "..", "sdk")
+		if _, err := os.Stat(sdkPath); os.IsNotExist(err) {
+			return fmt.Errorf("sdk path not found at: %s or %s", filepath.Join(wd, "sdk"), sdkPath)
+		}
 	}
 
 	tmpDir, err := os.MkdirTemp("", "gmcore-build-*")
@@ -341,25 +382,25 @@ func buildFramework(version string) error {
 go 1.21
 
 require (
-	gmcore.io/gmcore-config v%s
-	gmcore.io/gmcore-crud v%s
-	gmcore.io/gmcore-encryption v%s
-	gmcore.io/gmcore-events v%s
-	gmcore.io/gmcore-router v%s
-	gmcore.io/gmcore-settings v%s
-	gmcore.io/gmcore-store v%s
-	gmcore.io/gmcore-uuid v%s
+	gmcore.net/gmcore-config v%s
+	gmcore.net/gmcore-crud v%s
+	gmcore.net/gmcore-encryption v%s
+	gmcore.net/gmcore-events v%s
+	gmcore.net/gmcore-router v%s
+	gmcore.net/gmcore-settings v%s
+	gmcore.net/gmcore-store v%s
+	gmcore.net/gmcore-uuid v%s
 )
 
 replace (
-	gmcore.io/gmcore-config => ./vendor/gmcore/gmcore-config
-	gmcore.io/gmcore-crud => ./vendor/gmcore/gmcore-crud
-	gmcore.io/gmcore-encryption => ./vendor/gmcore/gmcore-encryption
-	gmcore.io/gmcore-events => ./vendor/gmcore/gmcore-events
-	gmcore.io/gmcore-router => ./vendor/gmcore/gmcore-router
-	gmcore.io/gmcore-settings => ./vendor/gmcore/gmcore-settings
-	gmcore.io/gmcore-store => ./vendor/gmcore/gmcore-store
-	gmcore.io/gmcore-uuid => ./vendor/gmcore/gmcore-uuid
+	gmcore.net/gmcore-config => ./vendor/gmcore/gmcore-config
+	gmcore.net/gmcore-crud => ./vendor/gmcore/gmcore-crud
+	gmcore.net/gmcore-encryption => ./vendor/gmcore/gmcore-encryption
+	gmcore.net/gmcore-events => ./vendor/gmcore/gmcore-events
+	gmcore.net/gmcore-router => ./vendor/gmcore/gmcore-router
+	gmcore.net/gmcore-settings => ./vendor/gmcore/gmcore-settings
+	gmcore.net/gmcore-store => ./vendor/gmcore/gmcore-store
+	gmcore.net/gmcore-uuid => ./vendor/gmcore/gmcore-uuid
 )
 `, cleanVersion, cleanVersion, cleanVersion, cleanVersion, cleanVersion, cleanVersion, cleanVersion, cleanVersion)
 
