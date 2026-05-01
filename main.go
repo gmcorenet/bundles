@@ -55,6 +55,16 @@ func main() {
 			os.Exit(1)
 		}
 
+	case "self-update":
+		targetVersion := ""
+		if len(os.Args) >= 3 {
+			targetVersion = os.Args[2]
+		}
+		if err := selfUpdate(targetVersion, token); err != nil {
+			fmt.Fprintln(os.Stderr, "Error:", err)
+			os.Exit(1)
+		}
+
 	case "version", "--version", "-v":
 		fmt.Printf("gmcore workspace tool %s\n", cliVersion)
 
@@ -63,6 +73,26 @@ func main() {
 		printUsage()
 		os.Exit(1)
 	}
+}
+
+func printUsage() {
+	fmt.Println("gmcore - GMCore Workspace Management Tool")
+	fmt.Println("")
+	fmt.Println("Usage:")
+	fmt.Println("  gmcore release <type>      Create and push SDK release tag")
+	fmt.Println("    type: minor (1.0.0 → 1.1.0)")
+	fmt.Println("          major (1.0.0 → 2.0.0)")
+	fmt.Println("          bugfix (1.0.0 → 1.0.1)")
+	fmt.Println("          or explicit version (e.g., v1.2.3)")
+	fmt.Println("  gmcore build-framework [ver]  Build framework tarball locally")
+	fmt.Println("  gmcore self-update [version]  Update tool to latest or specific version")
+	fmt.Println("  gmcore version                Show version")
+	fmt.Println("")
+	fmt.Println("Examples:")
+	fmt.Println("  gmcore release minor")
+	fmt.Println("  gmcore release v1.0.0")
+	fmt.Println("  gmcore self-update")
+	fmt.Println("  gmcore self-update 0.4.0")
 }
 
 func getGitHubToken() (string, error) {
@@ -111,21 +141,165 @@ Add to config:
   token = YOUR_GITHUB_TOKEN`, configPath)
 }
 
-func printUsage() {
-	fmt.Println("gmcore - GMCore Workspace Management Tool")
-	fmt.Println("")
-	fmt.Println("Usage:")
-	fmt.Println("  gmcore release <type>      Create and push SDK release tag")
-	fmt.Println("    type: minor (1.0.0 → 1.1.0)")
-	fmt.Println("          major (1.0.0 → 2.0.0)")
-	fmt.Println("          bugfix (1.0.0 → 1.0.1)")
-	fmt.Println("          or explicit version (e.g., v1.2.3)")
-	fmt.Println("  gmcore build-framework [ver]  Build framework tarball locally")
-	fmt.Println("  gmcore version                Show version")
-	fmt.Println("")
-	fmt.Println("Examples:")
-	fmt.Println("  gmcore release minor")
-	fmt.Println("  gmcore release v1.0.0")
+func selfUpdate(targetVersion, token string) error {
+	exePath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("failed to find executable: %w", err)
+	}
+
+	platform := getPlatform()
+	arch := getArch()
+	binaryName := fmt.Sprintf("gmcore-%s-%s", platform, arch)
+
+	if targetVersion == "" {
+		fmt.Println("Checking for latest version...")
+		latest, err := getLatestVersion(token)
+		if err != nil {
+			return fmt.Errorf("failed to get latest version: %w", err)
+		}
+		targetVersion = latest
+		fmt.Printf("Latest version: %s\n", targetVersion)
+	}
+
+	currentVersion := cliVersion
+	if targetVersion == currentVersion {
+		fmt.Printf("Already at version %s\n", currentVersion)
+		return nil
+	}
+
+	fmt.Printf("Updating from %s to %s...\n", currentVersion, targetVersion)
+
+	downloadURL := fmt.Sprintf("https://github.com/gmcorenet/workspace/releases/download/%s/%s", targetVersion, binaryName)
+
+	req, err := http.NewRequest("HEAD", downloadURL, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "token "+token)
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to check version: %w", err)
+	}
+	resp.Body.Close()
+
+	if resp.StatusCode == 404 {
+		return fmt.Errorf("version %s not found. Run 'gmcore release --help' to see available versions.", targetVersion)
+	}
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("unexpected status: %d", resp.StatusCode)
+	}
+
+	tmpDir, err := os.MkdirTemp("", "gmcore-update-*")
+	if err != nil {
+		return fmt.Errorf("failed to create temp dir: %w", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	req, _ = http.NewRequest("GET", downloadURL, nil)
+	req.Header.Set("Authorization", "token "+token)
+
+	resp, err = client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to download: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("failed to download: status %d", resp.StatusCode)
+	}
+
+	tmpBinary := filepath.Join(tmpDir, "gmcore")
+	out, err := os.Create(tmpBinary)
+	if err != nil {
+		return fmt.Errorf("failed to create temp file: %w", err)
+	}
+
+	if _, err := io.Copy(out, resp.Body); err != nil {
+		out.Close()
+		return fmt.Errorf("failed to write: %w", err)
+	}
+	out.Close()
+
+	if err := os.Chmod(tmpBinary, 0755); err != nil {
+		return fmt.Errorf("failed to set permissions: %w", err)
+	}
+
+	if err := os.Rename(tmpBinary, exePath); err != nil {
+		return fmt.Errorf("failed to replace binary: %w", err)
+	}
+
+	fmt.Printf("Updated to %s successfully\n", targetVersion)
+	return nil
+}
+
+func getLatestVersion(token string) (string, error) {
+	url := fmt.Sprintf("https://api.github.com/repos/gmcorenet/workspace/releases/latest")
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "token "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("unexpected status: %d", resp.StatusCode)
+	}
+
+	var release struct {
+		TagName string `json:"tag_name"`
+	}
+	if err := decodeJSON(resp.Body, &release); err != nil {
+		return "", err
+	}
+
+	return release.TagName, nil
+}
+
+func decodeJSON(r io.Reader, v interface{}) error {
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return err
+	}
+
+	s := string(data)
+	if idx := strings.Index(s, "\"tag_name\""); idx != -1 {
+		start := strings.Index(s[idx:], "\"") + idx + 1
+		end := start + strings.Index(s[start:], "\"")
+		if tag := strings.TrimSpace(s[start:end]); tag != "" {
+			if m, ok := v.(*struct{ TagName string }); ok {
+				m.TagName = tag
+			}
+		}
+	}
+	return nil
+}
+
+func getPlatform() string {
+	switch strings.ToLower(os.Getenv("GOOS")) {
+	case "windows":
+		return "windows"
+	case "darwin":
+		return "darwin"
+	default:
+		return "linux"
+	}
+}
+
+func getArch() string {
+	switch strings.ToLower(os.Getenv("GOARCH")) {
+	case "arm64":
+		return "arm64"
+	default:
+		return "amd64"
+	}
 }
 
 func release(bumpOrVersion, token string) error {
@@ -138,7 +312,7 @@ func release(bumpOrVersion, token string) error {
 		newVersion = bumpOrVersion
 		fmt.Printf("Using explicit version: %s\n", newVersion)
 	} else {
-		current, err := getLatestVersion(token)
+		current, err := getLatestVersionFromTags(token)
 		if err != nil {
 			return fmt.Errorf("failed to get latest version: %w", err)
 		}
@@ -182,7 +356,7 @@ func release(bumpOrVersion, token string) error {
 	return nil
 }
 
-func getLatestVersion(token string) (string, error) {
+func getLatestVersionFromTags(token string) (string, error) {
 	url := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", sdkRepo)
 
 	req, err := http.NewRequest("GET", url, nil)
