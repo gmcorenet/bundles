@@ -1,0 +1,32 @@
+go 1.26.2
+
+use (
+	./apps/gmcore
+	./apps/workspace
+	./framework
+	./packages/sdks/gmcore-asset
+	./packages/sdks/gmcore-bundle
+	./packages/sdks/gmcore-cert
+	./packages/sdks/gmcore-config
+	./packages/sdks/gmcore-console
+	./packages/sdks/gmcore-crud
+	./packages/sdks/gmcore-debugbar
+	./packages/sdks/gmcore-encryption
+	./packages/sdks/gmcore-error
+	./packages/sdks/gmcore-events
+	./packages/sdks/gmcore-form
+	./packages/sdks/gmcore-i18n
+	./packages/sdks/gmcore-installer
+	./packages/sdks/gmcore-lifecycle
+	./packages/sdks/gmcore-log
+	./packages/sdks/gmcore-ratelimit
+	./packages/sdks/gmcore-resolver
+	./packages/sdks/gmcore-response
+	./packages/sdks/gmcore-router
+	./packages/sdks/gmcore-seed
+	./packages/sdks/gmcore-settings
+	./packages/sdks/gmcore-templating
+	./packages/sdks/gmcore-uuid
+	./packages/sdks/gmcore-validation
+	./packages/sdks/gmcore-view
+)
