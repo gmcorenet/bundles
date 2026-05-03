@@ -2,8 +2,9 @@ go 1.26.2
 
 use (
 	./apps/gmcore
-	./apps/workspace
-	./framework
+	./apps/gmcore-workspace
+	./packages/framework
+	./packages/skeleton
 	./packages/sdks/gmcore-asset
 	./packages/sdks/gmcore-bundle
 	./packages/sdks/gmcore-cert
