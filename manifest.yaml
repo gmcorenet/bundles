@@ -1,0 +1,76 @@
+# GMCore Bundles Manifest
+version: 1
+description: Official GMCore bundles registry
+
+bundles:
+  crud:
+    name: crud-bundle
+    package: gmcore/crud-bundle
+    repo: https://github.com/gmcorenet/bundle-crud
+    module: github.com/gmcorenet/bundle-crud
+    version: 0.1.0
+    description: Reusable AJAX CRUD runtime with internal routes, form designer, and relation pickers
+
+  fields:
+    name: fields-bundle
+    package: gmcore/fields-bundle
+    repo: https://github.com/gmcorenet/bundle-fields
+    module: github.com/gmcorenet/bundle-fields
+    version: 0.1.0
+    description: Advanced form field types: ChoicePicker, DynamicCollection, RelationPicker, Combobox
+
+  files:
+    name: files-bundle
+    package: gmcore/files-bundle
+    repo: https://github.com/gmcorenet/bundle-files
+    module: github.com/gmcorenet/bundle-files
+    version: 0.1.0
+    description: File manager with explorer, uploader, storage profiles, and derivative generators
+
+  security:
+    name: security-bundle
+    package: gmcore/security-bundle
+    repo: https://github.com/gmcorenet/bundle-security
+    module: github.com/gmcorenet/bundle-security
+    version: 0.1.0
+    description: Authentication, authorization, voters, firewall, and user provider
+
+  api:
+    name: api-bundle
+    package: gmcore/api-bundle
+    repo: https://github.com/gmcorenet/bundle-api
+    module: github.com/gmcorenet/bundle-api
+    version: 0.1.0
+    description: REST API bundle with versioning, rate limiting, and OpenAPI/Swagger docs
+
+  notification:
+    name: notification-bundle
+    package: gmcore/notification-bundle
+    repo: https://github.com/gmcorenet/bundle-notification
+    module: github.com/gmcorenet/bundle-notification
+    version: 0.1.0
+    description: Multi-channel notification bundle (Email, Slack, Telegram, Push) with batch sending
+
+  webhook:
+    name: webhook-bundle
+    package: gmcore/webhook-bundle
+    repo: https://github.com/gmcorenet/bundle-webhook
+    module: github.com/gmcorenet/bundle-webhook
+    version: 0.1.0
+    description: Webhook receiver with HMAC validation, sender with retry, and event registry
+
+  workflow:
+    name: workflow-bundle
+    package: gmcore/workflow-bundle
+    repo: https://github.com/gmcorenet/bundle-workflow
+    module: github.com/gmcorenet/bundle-workflow
+    version: 0.1.0
+    description: State machine workflow bundle with transition guards and history
+
+  admin:
+    name: admin-bundle
+    package: gmcore/admin-bundle
+    repo: https://github.com/gmcorenet/bundle-admin
+    module: github.com/gmcorenet/bundle-admin
+    version: 0.1.0
+    description: Admin dashboard bundle with auto-generated CRUD and menu builder
